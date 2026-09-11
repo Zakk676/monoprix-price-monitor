@@ -1,9 +1,6 @@
 import json
 import os
 import re
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 import requests
 from bs4 import BeautifulSoup
@@ -109,10 +106,9 @@ def get_price(url):
 
 
 def send_email(product_name, url, old_price, new_price):
-    """Envoie une alerte email."""
+    """Envoie une alerte email via Resend."""
 
-    email_user = os.environ["EMAIL_USER"]
-    email_password = os.environ["EMAIL_PASSWORD"]
+    api_key = os.environ["RESEND_API_KEY"]
     email_to = os.environ["EMAIL_TO"]
 
     difference = old_price - new_price
@@ -120,35 +116,53 @@ def send_email(product_name, url, old_price, new_price):
 
     subject = f"🔻 Baisse de prix : {product_name}"
 
-    body = f"""
-BAISSE DE PRIX DÉTECTÉE
+    html = f"""
+    <html>
+        <body>
+            <h2>🔻 Baisse de prix détectée</h2>
 
-Produit :
-{product_name}
+            <p><strong>{product_name}</strong></p>
 
-Ancien prix : {old_price:.2f} €
-Nouveau prix : {new_price:.2f} €
+            <p>
+                Ancien prix :
+                <strong>{old_price:.2f} €</strong>
+            </p>
 
-Baisse : {difference:.2f} €
-Soit : -{percentage:.1f} %
+            <p>
+                Nouveau prix :
+                <strong>{new_price:.2f} €</strong>
+            </p>
 
-Lien :
-{url}
-"""
+            <p>
+                Baisse :
+                <strong>{difference:.2f} € (-{percentage:.1f} %)</strong>
+            </p>
 
-    message = MIMEMultipart()
-    message["From"] = email_user
-    message["To"] = email_to
-    message["Subject"] = subject
+            <p>
+                <a href="{url}">👉 Voir le produit</a>
+            </p>
+        </body>
+    </html>
+    """
 
-    message.attach(
-        MIMEText(body, "plain", "utf-8")
+    response = requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "from": "onboarding@resend.dev",
+            "to": [email_to],
+            "subject": subject,
+            "html": html
+        },
+        timeout=30
     )
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(email_user, email_password)
-        server.send_message(message)
+    response.raise_for_status()
+
+    print("📧 Email envoyé avec succès.")
 
 
 def load_json(filename, default):
@@ -203,7 +217,7 @@ def main():
             elif current_price < previous_price:
 
                 print(
-                    f"BAISSE : "
+                    f"🔻 BAISSE : "
                     f"{previous_price:.2f} € "
                     f"-> {current_price:.2f} €"
                 )
@@ -224,13 +238,13 @@ def main():
                     f"-> {current_price:.2f} €"
                 )
 
-            # On sauvegarde toujours le dernier prix
+            # Sauvegarde du dernier prix
             new_prices[url] = current_price
 
         except Exception as error:
 
             print(
-                f"ERREUR pour {name} : {error}"
+                f"❌ ERREUR pour {name} : {error}"
             )
 
     save_json(
